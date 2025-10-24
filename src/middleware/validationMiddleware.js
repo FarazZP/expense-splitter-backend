@@ -26,6 +26,10 @@ export const validateRegister = [
   body("password")
     .isLength({ min: 6 })
     .withMessage("Password must be at least 6 characters long"),
+  body("phone")
+    .optional()
+    .isLength({ min: 10, max: 15 })
+    .withMessage("Phone must be between 10 and 15 characters"),
 ];
 
 export const validateLogin = [
@@ -36,6 +40,18 @@ export const validateLogin = [
   body("password")
     .notEmpty()
     .withMessage("Password is required"),
+];
+
+export const validateUpdateProfile = [
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage("Name must be between 2 and 50 characters"),
+  body("phone")
+    .optional()
+    .isLength({ min: 10, max: 15 })
+    .withMessage("Phone must be between 10 and 15 characters"),
 ];
 
 // Group validation rules
