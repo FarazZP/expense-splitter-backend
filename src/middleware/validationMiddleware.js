@@ -69,12 +69,49 @@ export const validateCreateGroup = [
     .optional()
     .isArray()
     .withMessage("Members must be an array"),
+  body("members.*.email")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("Invalid email format in members array"),
+  body("members.*.phone")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isString()
+    .isLength({ min: 5 })
+    .withMessage("Invalid phone number in members array"),
+  body("members").custom((members) => {
+    if (!members || members.length === 0) {
+      return true;
+    }
+    return members.every((member) => {
+      const email = member?.email?.trim() || "";
+      const phone = member?.phone?.trim() || "";
+      return email !== "" || phone !== "";
+    });
+  }).withMessage("Each member must provide either email or phone"),
 ];
 
 export const validateAddMember = [
-  body("memberId")
-    .isMongoId()
-    .withMessage("Invalid member ID"),
+  body("email")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("Invalid email format"),
+  body("phone")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isString()
+    .isLength({ min: 5 })
+    .withMessage("Invalid phone number"),
+  body().custom((body) => {
+    const email = body.email?.trim() || "";
+    const phone = body.phone?.trim() || "";
+    if (!email && !phone) {
+      throw new Error("Either email or phone is required");
+    }
+    return true;
+  }),
 ];
 
 // Expense validation rules

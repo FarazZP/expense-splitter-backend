@@ -1,4 +1,5 @@
 import Group from "../models/Group.model.js";
+import User from "../models/User.model.js"
 import asyncHandler from "express-async-handler";
 import { getIO } from "../socket.js";
 import { createNotification } from "./notification.controller.js";
@@ -18,9 +19,31 @@ export const createGroup = asyncHandler(async (req, res) => {
     });
 
     if (members && members.length > 0) {
-      for (const memberId of members) {
-        if (memberId !== req.user._id.toString()) {
-          group.members.push({ user: memberId });
+      for (const memberInfo of members) {
+        // Trim and get values
+        const memberEmail = memberInfo.email?.trim() || "";
+        const memberPhone = memberInfo.phone?.trim() || "";
+        
+        // Skip if both email and phone are empty or if it's the current user
+        if (!memberEmail && !memberPhone) {
+          continue;
+        }
+        
+        // Skip if it's the current user
+        if (memberEmail === req.user.email || memberPhone === req.user.phone) {
+          continue;
+        }
+
+        // Find user by email or phone
+        const member = await User.findOne({
+          $or: [
+            ...(memberEmail ? [{ email: memberEmail }] : []),
+            ...(memberPhone ? [{ phone: memberPhone }] : [])
+          ]
+        });
+
+        if (member && !group.members.some(m => m.user.toString() === member._id.toString())) {
+          group.members.push({ user: member._id });
         }
       }
     }
@@ -28,8 +51,8 @@ export const createGroup = asyncHandler(async (req, res) => {
     await group.save();
 
     const populatedGroup = await Group.findById(group._id)
-      .populate("members.user", "name email")
-      .populate("createdBy", "name email");
+      .populate("members.user", "name email phone avatar")
+      .populate("createdBy", "name email phone avatar");
 
     const io = getIO();
     populatedGroup.members.forEach((m) => {
@@ -116,38 +139,66 @@ export const getGroupById = asyncHandler(async (req, res) => {
 // @access Private
 export const addMember = asyncHandler(async (req, res) => {
   try {
-    const { memberId } = req.body;
+    const { email, phone } = req.body; // user can provide either email or phone
     const group = await Group.findById(req.params.id);
 
-    if (!group) return res.status(404).json({ success: false, message: "Group not found" });
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
 
     if (group.createdBy.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: "Only creator can add members" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Only the group creator can add members" });
     }
 
-    const alreadyMember = group.members.some((m) => m.user.toString() === memberId);
+    // Trim and get values
+    const memberEmail = email?.trim() || "";
+    const memberPhone = phone?.trim() || "";
+
+    const member = await User.findOne({
+      $or: [
+        ...(memberEmail ? [{ email: memberEmail }] : []),
+        ...(memberPhone ? [{ phone: memberPhone }] : [])
+      ]
+    });
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const alreadyMember = group.members.some(
+      (m) => m.user.toString() === member._id.toString()
+    );
     if (alreadyMember) {
-      return res.status(400).json({ success: false, message: "User already a member" });
+      return res.status(400).json({ success: false, message: "User is already a member" });
     }
 
-    group.members.push({ user: memberId });
+    if (member._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ success: false, message: "You are already in this group" });
+    }
+
+    group.members.push({ user: member._id });
     await group.save();
 
     const populatedGroup = await Group.findById(group._id)
-      .populate("members.user", "name email")
-      .populate("createdBy", "name email");
+      .populate("members.user", "name email phone")
+      .populate("createdBy", "name email phone");
 
     const io = getIO();
     io.to(group._id.toString()).emit("memberAdded", populatedGroup);
 
-    // NOTIFICATION
     await createNotification(
-      memberId,
-      `You were added to group "${group.name}" by ${req.user.name}`,
+      member._id,
+      `You were added to the group "${group.name}" by ${req.user.name}`,
       "group"
     );
 
-    res.status(200).json({ success: true, group: populatedGroup });
+    res.status(200).json({
+      success: true,
+      message: `Member ${member.name} added successfully`,
+      group: populatedGroup,
+    });
   } catch (error) {
     console.error("Error adding member:", error);
     res.status(500).json({ success: false, message: "Failed to add member" });
