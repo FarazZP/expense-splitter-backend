@@ -1,5 +1,6 @@
-import express from "express";
 import dotenv from "dotenv";
+dotenv.config();
+import express from "express";
 import cors from "cors";
 import http from "http";
 import { connectDB } from "./config/db.js";
@@ -13,8 +14,6 @@ import exportRoutes from "./routes/export.routes.js";
 
 import { initSocket } from "./socket.js";
 import { generalLimiter, authLimiter } from "./middleware/rateLimiter.js";
-
-dotenv.config();
 
 const app = express();
 

@@ -241,13 +241,19 @@ export const updateExpense = asyncHandler(async (req, res) => {
 // @route POST /api/expenses/:id/receipt
 // @access Private
 export const addReceiptToExpense = asyncHandler(async (req, res) => {
+  console.log("Receipt upload endpoint hit for expense:", req.params.id);
   try {
     const expense = await Expense.findById(req.params.id);
     if (!expense) {
+      console.error("Expense not found:", req.params.id);
       return res.status(404).json({ success: false, message: "Expense not found" });
     }
 
     const group = await Group.findById(expense.group);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
     const isCreator = expense.createdBy.toString() === req.user._id.toString();
     const isGroupAdmin = group.createdBy.toString() === req.user._id.toString();
 
@@ -259,8 +265,26 @@ export const addReceiptToExpense = asyncHandler(async (req, res) => {
     }
 
     if (!req.file) {
+      console.error("No file in request:", { body: req.body, files: req.files });
       return res.status(400).json({ success: false, message: "No file uploaded" });
     }
+
+    // Validate that file has required properties
+    if (!req.file.path) {
+      console.error("File missing path property:", req.file);
+      return res.status(500).json({ 
+        success: false, 
+        message: "File upload failed - missing file path" 
+      });
+    }
+
+    console.log("File successfully uploaded to Cloudinary:", {
+      path: req.file.path,
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+    });
 
     // Delete old receipt if exists
     if (expense.receipt?.publicId) {
@@ -271,11 +295,16 @@ export const addReceiptToExpense = asyncHandler(async (req, res) => {
       }
     }
 
+    // Use public_id directly from req.file (set by upload middleware)
+    const publicId = req.file.public_id || req.file.filename;
+
     const receiptData = {
-      url: req.file.path,
-      publicId: req.file.filename,
-      filename: req.file.originalname,
+      url: req.file.path, // Cloudinary secure URL
+      publicId: publicId || "receipt", // Public ID from Cloudinary
+      filename: req.file.originalname || "receipt",
     };
+
+    console.log("Receipt data prepared:", receiptData);
 
     const updatedExpense = await Expense.findByIdAndUpdate(
       req.params.id,
@@ -293,7 +322,12 @@ export const addReceiptToExpense = asyncHandler(async (req, res) => {
     res.status(200).json({ success: true, expense: updatedExpense });
   } catch (error) {
     console.error("Error adding receipt:", error);
-    res.status(500).json({ success: false, message: "Failed to add receipt" });
+    console.error("Error stack:", error.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to add receipt",
+      error: error.message 
+    });
   }
 });
 

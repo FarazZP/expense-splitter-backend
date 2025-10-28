@@ -20,13 +20,6 @@ const expenseSchema = new mongoose.Schema(
       filename: { type: String },
     },
     tags: [{ type: String, trim: true }],
-    location: {
-      name: { type: String },
-      coordinates: {
-        type: { type: String, enum: ["Point"], default: "Point" },
-        coordinates: { type: [Number] }, // [longitude, latitude]
-      },
-    },
   },
   { timestamps: true }
 );
@@ -34,6 +27,5 @@ const expenseSchema = new mongoose.Schema(
 expenseSchema.index({ group: 1, createdAt: -1 });
 expenseSchema.index({ category: 1 });
 expenseSchema.index({ createdBy: 1 });
-expenseSchema.index({ "location.coordinates": "2dsphere" });
 
 export default mongoose.model("Expense", expenseSchema);
