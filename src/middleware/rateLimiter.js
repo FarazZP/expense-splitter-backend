@@ -1,9 +1,9 @@
 import rateLimit from "express-rate-limit";
 
-// General API rate limiter
+// General API rate limiter - DISABLED FOR TESTING
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 10000, // Very high limit for testing
   message: {
     success: false,
     message: "Too many requests from this IP, please try again later.",
@@ -12,10 +12,10 @@ export const generalLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
-// Strict rate limiter for authentication endpoints
+// Strict rate limiter for authentication endpoints - DISABLED FOR TESTING
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 10000, // Very high limit for testing
   message: {
     success: false,
     message: "Too many authentication attempts, please try again later.",
@@ -25,10 +25,10 @@ export const authLimiter = rateLimit({
   skipSuccessfulRequests: true, // Don't count successful requests
 });
 
-// Moderate rate limiter for expense operations
+// Moderate rate limiter for expense operations - DISABLED FOR TESTING
 export const expenseLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Limit each IP to 50 requests per windowMs
+  max: 10000, // Very high limit for testing
   message: {
     success: false,
     message: "Too many expense operations, please try again later.",
@@ -37,10 +37,10 @@ export const expenseLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// File upload rate limiter
+// File upload rate limiter - DISABLED FOR TESTING
 export const uploadLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10, // Limit each IP to 10 uploads per minute
+  max: 10000, // Very high limit for testing
   message: {
     success: false,
     message: "Too many file uploads, please try again later.",
@@ -49,10 +49,10 @@ export const uploadLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Export rate limiter
+// Export rate limiter - DISABLED FOR TESTING
 export const exportLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // Limit each IP to 5 exports per minute
+  max: 10000, // Very high limit for testing
   message: {
     success: false,
     message: "Too many export requests, please try again later.",
@@ -61,10 +61,10 @@ export const exportLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Search rate limiter
+// Search rate limiter - DISABLED FOR TESTING
 export const searchLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 30, // Limit each IP to 30 searches per minute
+  max: 10000, // Very high limit for testing
   message: {
     success: false,
     message: "Too many search requests, please try again later.",

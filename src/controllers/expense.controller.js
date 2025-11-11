@@ -1,9 +1,64 @@
 import Expense from "../models/Expense.model.js";
 import Group from "../models/Group.model.js";
+import Settlement from "../models/Settlement.model.js";
 import asyncHandler from "express-async-handler";
 import { getIO } from "../socket.js";
 import { createNotification } from "./notification.controller.js";
 import { deleteCloudinaryFile } from "../middleware/uploadMiddleware.js";
+
+// Helper function to check if an expense is fully settled
+const isExpenseFullySettled = async (expenseId) => {
+  try {
+    const expense = await Expense.findById(expenseId);
+    if (!expense) return false;
+
+    const paidById = expense.paidBy.toString();
+    
+    // Get all settlements for this expense
+    const settlements = await Settlement.find({
+      expense: expenseId,
+      status: 'completed'
+    });
+
+    // Calculate paid amounts per user
+    const paidAmounts = {}; // paidAmounts[userId] = total paid to paidBy user
+    
+    settlements.forEach(settlement => {
+      const fromId = settlement.from.toString();
+      const toId = settlement.to.toString();
+      
+      // Only count payments TO the person who originally paid (paidBy)
+      if (toId === paidById) {
+        if (!paidAmounts[fromId]) paidAmounts[fromId] = 0;
+        paidAmounts[fromId] += settlement.amount;
+      }
+    });
+
+    // Check if all users who owe have paid their full share
+    let allSettled = true;
+    
+    for (const split of expense.splitBetween) {
+      const userId = split.user.toString();
+      
+      // Skip the person who paid (they don't need to pay themselves)
+      if (userId === paidById) continue;
+      
+      const alreadyPaid = paidAmounts[userId] || 0;
+      const remainingBalance = split.share - alreadyPaid;
+      
+      // If any user hasn't paid their full share, expense is not fully settled
+      if (remainingBalance > 0.01) {
+        allSettled = false;
+        break;
+      }
+    }
+    
+    return allSettled;
+  } catch (error) {
+    console.error("Error checking if expense is fully settled:", error);
+    return false;
+  }
+};
 
 // @desc Add new expense
 // @route POST /api/expenses
@@ -81,7 +136,18 @@ export const getGroupExpenses = asyncHandler(async (req, res) => {
       .populate("splitBetween.user", "name email")
       .populate("createdBy", "name email");
 
-    res.status(200).json({ success: true, expenses });
+    // Add settlement status for each expense
+    const expensesWithStatus = await Promise.all(
+      expenses.map(async (expense) => {
+        const isSettled = await isExpenseFullySettled(expense._id);
+        return {
+          ...expense.toObject(),
+          isFullySettled: isSettled
+        };
+      })
+    );
+
+    res.status(200).json({ success: true, expenses: expensesWithStatus });
   } catch (error) {
     console.error("Error getting group expenses:", error);
     res.status(500).json({ success: false, message: "Failed to get group expenses" });
@@ -104,7 +170,14 @@ export const getExpenseById = asyncHandler(async (req, res) => {
         .json({ success: false, message: "Expense not found" });
     }
 
-    res.status(200).json({ success: true, expense });
+    // Add settlement status
+    const isSettled = await isExpenseFullySettled(expense._id);
+    const expenseWithStatus = {
+      ...expense.toObject(),
+      isFullySettled: isSettled
+    };
+
+    res.status(200).json({ success: true, expense: expenseWithStatus });
   } catch (error) {
     console.error("Error fetching expenses:", error);
     res.status(500).json({ success: false, message: "No Expenses found" });
@@ -152,23 +225,82 @@ export const deleteExpense = asyncHandler(async (req, res) => {
 // @access Private
 export const getGroupSummary = asyncHandler(async (req, res) => {
   try {
-    const expenses = await Expense.find({ group: req.params.groupId });
+    const groupId = req.params.groupId;
+    const group = await Group.findById(groupId).populate("members.user", "name email avatar");
+    
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
 
-    const balances = {};
+    const expenses = await Expense.find({ group: groupId });
+    
+    // Also fetch settlements for this group (only completed ones count towards balances)
+    const settlements = await Settlement.find({ 
+      group: groupId,
+      status: 'completed'
+    });
 
+    // Calculate balances per user with detailed information
+    const balanceData = {};
+    const totalPaid = {};
+    const totalOwed = {};
+
+    // Initialize all group members
+    group.members.forEach(member => {
+      const userId = member.user._id.toString();
+      balanceData[userId] = {
+        user: member.user,
+        balance: 0,
+        totalPaid: 0,
+        totalOwed: 0
+      };
+      totalPaid[userId] = 0;
+      totalOwed[userId] = 0;
+    });
+
+    // Calculate balances from expenses
+    // Positive balance = user is owed money (they paid more than their share)
+    // Negative balance = user owes money (they owe their share)
     for (const expense of expenses) {
       const paidBy = expense.paidBy.toString();
-      if (!balances[paidBy]) balances[paidBy] = 0;
-      balances[paidBy] += expense.amount;
+      if (balanceData[paidBy]) {
+        balanceData[paidBy].balance += expense.amount;
+        totalPaid[paidBy] += expense.amount;
+      }
 
       for (const split of expense.splitBetween) {
         const userId = split.user.toString();
-        if (!balances[userId]) balances[userId] = 0;
-        balances[userId] -= split.share;
+        if (balanceData[userId]) {
+          balanceData[userId].balance -= split.share;
+          totalOwed[userId] += split.share;
+        }
       }
     }
 
-    res.status(200).json({ success: true, balances });
+    // Adjust balances based on settlements
+    // When user A (from) pays user B (to) an amount:
+    // - User A's balance increases (they paid, reducing what they owe or increasing what they're owed)
+    // - User B's balance decreases (they received, reducing what they're owed or increasing what they owe)
+    for (const settlement of settlements) {
+      const fromUserId = settlement.from.toString();
+      const toUserId = settlement.to.toString();
+      const amount = settlement.amount;
+
+      if (balanceData[fromUserId]) {
+        balanceData[fromUserId].balance += amount;
+      }
+      if (balanceData[toUserId]) {
+        balanceData[toUserId].balance -= amount;
+      }
+    }
+
+    // Update totalPaid and totalOwed in the response
+    Object.keys(balanceData).forEach(userId => {
+      balanceData[userId].totalPaid = totalPaid[userId] || 0;
+      balanceData[userId].totalOwed = totalOwed[userId] || 0;
+    });
+
+    res.status(200).json({ success: true, balances: balanceData });
   } catch (error) {
     console.error("Error generating summary: ", error);
     res.status(500).json({ success: false, message: "Failed to generate summary" });
@@ -452,16 +584,27 @@ export const getFilteredExpenses = asyncHandler(async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Add settlement status for each expense
+    const expensesWithStatus = await Promise.all(
+      expenses.map(async (expense) => {
+        const isSettled = await isExpenseFullySettled(expense._id);
+        return {
+          ...expense.toObject(),
+          isFullySettled: isSettled
+        };
+      })
+    );
+
     const total = await Expense.countDocuments(filter);
 
     res.status(200).json({
       success: true,
-      expenses,
+      expenses: expensesWithStatus,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / parseInt(limit)),
         totalExpenses: total,
-        hasNext: skip + expenses.length < total,
+        hasNext: skip + expensesWithStatus.length < total,
         hasPrev: parseInt(page) > 1,
       },
     });

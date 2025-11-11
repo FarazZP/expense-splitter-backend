@@ -21,8 +21,18 @@ const settlementSchema = new mongoose.Schema(
         type: Number,
         required: true,
         },
+        expense: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Expense",
+        },
         note: {
         type: String,
+        default: '',
+        },
+        status: {
+        type: String,
+        enum: ['pending', 'completed'],
+        default: 'completed',
         },
         settledAt: {
         type: Date,
